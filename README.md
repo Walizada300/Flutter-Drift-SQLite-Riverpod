@@ -62,24 +62,6 @@ A test project demonstrating how to build a multi-database system in Flutter usi
 
 ---
 
-## 📁 Project Structure
-
-lib/
- ├── db/
- │   ├── app_database.dart
- │   ├── db_factory.dart
- │   └── db_paths.dart
- │
- ├── features/
- │   ├── db_list/
- │   ├── db_session/
- │   ├── auth/
- │   └── home/
- │
- └── main.dart
-
----
-
 ## 🔐 Encryption (Optional SQLCipher Setup)
 
 To enable database encryption:
