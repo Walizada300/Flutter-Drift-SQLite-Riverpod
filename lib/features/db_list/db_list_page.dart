@@ -1,3 +1,6 @@
+import 'package:dirft_project/remote/remote_home_page.dart';
+import 'package:dirft_project/remote/remote_session_controller.dart';
+import 'package:dirft_project/server/server_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -141,21 +144,32 @@ class DbListPage extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-            child: Row(
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
               children: [
-                Expanded(
+                SizedBox(
+                  width: 220,
                   child: FilledButton.icon(
                     onPressed: () => _createDbDialog(context, ref),
                     icon: const Icon(Icons.add),
                     label: const Text('Create database'),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
+                SizedBox(
+                  width: 220,
                   child: OutlinedButton.icon(
                     onPressed: () => _pickAndOpenDatabase(context, ref),
                     icon: const Icon(Icons.folder_open),
                     label: const Text('Open database'),
+                  ),
+                ),
+                SizedBox(
+                  width: 220,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _connectToComputer(context, ref),
+                    icon: const Icon(Icons.wifi_tethering),
+                    label: const Text('Connect to computer'),
                   ),
                 ),
               ],
@@ -357,7 +371,11 @@ class DbListPage extends ConsumerWidget {
                           await ref
                               .read(dbSessionControllerProvider.notifier)
                               .connect(item.path);
-
+                          // start LAN server
+                          await ref
+                              .read(serverControllerProvider.notifier)
+                              .startServer(port: 8080);
+                          print("Server start");
                           final loggedIn = await _loginDialog(context);
                           if (!loggedIn) {
                             await ref
@@ -414,6 +432,118 @@ class DbListPage extends ConsumerWidget {
     return v;
   }
 
+  Future<String?> _ipDialog(BuildContext context) async {
+    final ctrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Connect to computer'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(
+            labelText: 'Enter IP address',
+            hintText: 'e.g. 192.168.1.10',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Connect'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return null;
+    final ip = ctrl.text.trim();
+    if (ip.isEmpty) return null;
+    return ip;
+  }
+
+  Future<void> _connectToComputer(BuildContext context, WidgetRef ref) async {
+    final ip = await _ipDialog(context);
+    if (ip == null) return;
+
+    await ref.read(remoteSessionProvider.notifier).connect(ip, port: 8080);
+
+    final sess = ref.read(remoteSessionProvider).valueOrNull;
+    if (sess == null) {
+      final err = ref.read(remoteSessionProvider).error;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Connect failed: $err')));
+      return;
+    }
+
+    final loggedIn = await _loginDialogRemote(context, ref);
+    if (!loggedIn) {
+      ref.read(remoteSessionProvider.notifier).disconnect();
+      return;
+    }
+
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RemoteHomePage()),
+    );
+  }
+
+  Future<bool> _loginDialogRemote(BuildContext context, WidgetRef ref) async {
+    final userCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('Remote Login'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: userCtrl,
+              decoration: const InputDecoration(labelText: 'Username'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: passCtrl,
+              decoration: const InputDecoration(labelText: 'Password'),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Login'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return false;
+
+    final sess = ref.read(remoteSessionProvider).valueOrNull;
+    if (sess == null) return false;
+
+    final success = await sess.api.login(userCtrl.text.trim(), passCtrl.text);
+    if (!success && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invalid credentials')));
+    }
+    return success;
+  }
+
   Future<void> _pickAndOpenDatabase(BuildContext context, WidgetRef ref) async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -436,7 +566,8 @@ class DbListPage extends ConsumerWidget {
       await ref
           .read(dbSessionControllerProvider.notifier)
           .connect(importedPath);
-
+      await ref.read(serverControllerProvider.notifier).startServer(port: 8080);
+      print("server run");
       final loggedIn = await _loginDialog(context);
       if (!loggedIn) {
         await ref.read(dbSessionControllerProvider.notifier).disconnect();
